@@ -89,22 +89,25 @@ mișcările sunt efectuate conform unui protocol video standardizat
 toți participanții au repetat aceleași mișcări în aceleași condiții
 ### 2.2 Caracteristicile dataset-ului
 
-* **Număr total de observații:** 19.600 instanțe complete de date asociată cu o etichetă (o mișcare).
+* **Număr total de observații:** ~580.000+ ferestre
+* Notă: O observație = o fereastră de timp de 150 ms (sliding window).
+
 Se foloseste una dintre bazele de date din NinaPro (DB2) unde se regasesc:
 40 subiecți sănătoși intacți * 49 miscari ale mainii * 10 repetari
 
-* **Număr de caracteristici (features):** 5
-* **Tipuri de date:**  Subiect (ID subiect) / 12 canale EMG / Stimulus (Eticehta) / Restimulus (perioade de repaus/activ) / Repetition (repetari)
-* **Format fișiere:** .mat (Mathlab)
+* **Număr de caracteristici (features):** 12 (cele 12 canale ale senzorilor EMG).
+* **Tipuri de date:**  Serii de timp numerice (Matrice 150 eșantioane x 12 canale)
+* **Format fișiere:** .mat (Structuri MATLAB proprietare NinaPro)
 
 ### 2.3 Descrierea fiecărei caracteristici
 
 | **Caracteristică** | **Tip** | **Unitate** | **Descriere** | **Domeniu valori** |
 |-------------------|---------|-------------|---------------|--------------------|
-| feature_1 | numeric | mm | [...] | 0–150 |
-| feature_2 | categorial | – | [...] | {A, B, C} |
-| feature_3 | numeric | m/s | [...] | 0–2.5 |
-| ... | ... | ... | ... | ... |
+| emg (ch 1-12) | numeric (float) | μV/a.u | Semnalul electric captat de cei 12 electrozi Delsys Trigno | Valori brute mici |
+| stimulus | categorial (int) | – | Eticheta mișcării pe care subiectul trebuie să o execute. | 0 (Rest) ... 40 (Diverse mișcări) |
+| restimulus | categorial (int) | - | Indică dacă subiectul este în pauză sau execută mișcarea. | 0 (Mișcare), 1 (Repaus) |
+| repetition | categorial (int) | - | Indexul repetării curente a mișcării. | 1 – 6 |
+| subject | categorial (int) | - | ID-ul unic al subiectului (extras din numele fișierului). | 1 – 40 |
 
 **Fișier recomandat:**  `data/README.md`
 
@@ -114,22 +117,22 @@ Se foloseste una dintre bazele de date din NinaPro (DB2) unde se regasesc:
 
 ### 3.1 Statistici descriptive aplicate
 
-* **Medie, mediană, deviație standard**
-* **Min–max și quartile**
-* **Distribuții pe caracteristici** (histograme)
-* **Identificarea outlierilor** (IQR / percentile)
+* **Medie și deviație standard:** Calculate per fereastră (axis=1) în etapa de normalizare pentru a centra semnalul în 0.
+  
+* **Distribuții pe clase:** S-a observat o variație a numărului de ferestre per mișcare (datorată duratei variabile de execuție a subiecților).
+Exemplu: Mișcările complexe (Grasps) tind să dureze mai mult decât mișcările simple (Wrist Flexion), generând mai multe ferestre.
 
 ### 3.2 Analiza calității datelor
 
-* **Detectarea valorilor lipsă** (% pe coloană)
-* **Detectarea valorilor inconsistente sau eronate**
-* **Identificarea caracteristicilor redundante sau puternic corelate**
+* **Sincronizare:** S-au detectat discrepanțe minore (de 1 eșantion) între lungimea vectorilor emg și stimulus în fișierele brute .mat.
+* **Clase rare:** Anumite mișcări au avut un număr insuficient de exemple (< 20 ferestre) în cazul unor subiecți, riscând să destabilizeze antrenarea.
+* **Zgomot de repaus:** Semnalele marcate cu stimulus=0 (Repaus) conțin zgomot de fond care nu este relevant pentru clasificarea mișcărilor active.
 
 ### 3.3 Probleme identificate
 
-* [exemplu] Feature X are 8% valori lipsă
-* [exemplu] Distribuția feature Y este puternic neuniformă
-* [exemplu] Variabilitate ridicată în clase (class imbalance)
+* Mismatch de dimensiuni: Vectori inegali (ex: 877073 vs 877072) -> Soluționat prin tăiere la lungimea minimă comună.
+* Class Imbalance: Clasele au număr diferit de exemple -> Soluționat prin ponderarea claselor (implicit prin date masive) și Stratified Split.
+* Nepotrivire Etichete: Fișierele E2 conțin etichete începând de la 13, nu de la 1 -> Soluționat prin remaparea dicționarului label_map.
 
 ---
 
@@ -137,24 +140,30 @@ Se foloseste una dintre bazele de date din NinaPro (DB2) unde se regasesc:
 
 ### 4.1 Curățarea datelor
 
-* **Eliminare duplicatelor**
-* **Tratarea valorilor lipsă:**
-  * Feature A: imputare cu mediană
-  * Feature B: eliminare (30% valori lipsă)
-* **Tratarea outlierilor:** IQR / limitare percentile
+* **Filtrare Activă:** S-au eliminat toate eșantioanele unde stimulus == 0 sau restimulus != 0. Se păstrează doar momentele de contracție musculară activă.
+* **Eliminarea claselor rare:** S-a implementat un prag (min_windows = 20). Clasele cu mai puțin de 20 de ferestre sunt eliminate automat din setul de date.
+* **Corecție lungimi:** Trunchierea automată a vectorilor la min(len(emg), len(stimulus)).
 
 ### 4.2 Transformarea caracteristicilor
 
-* **Normalizare:** Min–Max / Standardizare
-* **Encoding pentru variabile categoriale**
-* **Ajustarea dezechilibrului de clasă** (dacă este cazul)
+* **Windowing (Ferestruire):**
+Tehnică: Sliding Window (Fereastră Glisantă).
+Dimensiune fereastră: 150 eșantioane (cca. 150-200ms).
+Suprapunere (Step Size): 20 eșantioane (pentru augmentarea datelor și continuitate).
+
+* **Normalizare (Z-Score per Window):**
+
+Se aplică individual pe fiecare fereastră pentru a reduce efectul variațiilor de amplitudine (oboseală musculară, conductivitate piele).
+
+* **Encoding:**
+Etichetele (13, 14, ...) au fost mapate la indici consecutivi (0, 1, ...) și transformate în vectori One-Hot pentru antrenare (to_categorical).
 
 ### 4.3 Structurarea seturilor de date
-
+S-a folosit funcția train_test_split cu stratificare (stratify=y) pentru a menține proporția mișcărilor în toate seturile:
 **Împărțire recomandată:**
-* 70–80% – train
-* 10–15% – validation
-* 10–15% – test
+* 70% – train
+* 15% – validation
+* 15% – test
 
 **Principii respectate:**
 * Stratificare pentru clasificare
@@ -163,9 +172,8 @@ Se foloseste una dintre bazele de date din NinaPro (DB2) unde se regasesc:
 
 ### 4.4 Salvarea rezultatelor preprocesării
 
-* Date preprocesate în `data/processed/`
-* Seturi train/val/test în foldere dedicate
-* Parametrii de preprocesare în `config/preprocessing_config.*` (opțional)
+* Modelul antrenat este salvat în format .keras și .tflite.
+* Artifactele (codul, logurile) sunt salvate local.
 
 ---
 

@@ -2,7 +2,7 @@
 
 **Disciplina:** Rețele Neuronale  
 **Instituție:** POLITEHNICA București – FIIR  
-**Student:** Iordache Robert 
+**Student:** Iordache Robert Georgian
 **Data:** 06.12.2025  
 
 ---

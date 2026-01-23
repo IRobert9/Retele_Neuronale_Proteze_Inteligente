@@ -2,7 +2,7 @@
 
 **Disciplina:** Rețele Neuronale  
 **Instituție:** POLITEHNICA București – FIIR  
-**Student:** [Nume Prenume]  
+**Student:** Iordache Robert Georgian  
 **Link Repository GitHub**
 **Data:** [Data]  
 ---
@@ -127,104 +127,62 @@ Această abordare demonstrează că augmentarea nu este doar o multiplicare arti
 
 ### 3. Diagrama State Machine a Întregului Sistem (OBLIGATORIE)
 
-**Cerințe:**
-- **Minimum 4-6 stări clare** cu tranziții între ele
-- **Formate acceptate:** PNG/SVG, pptx, draw.io 
-- **Locație:** `docs/state_machine.*` (orice extensie)
-- **Legendă obligatorie:** 1-2 paragrafe în acest README: "De ce ați ales acest State Machine pentru nevoia voastră?"
+**Locație fișier:** `docs/state_machine.png`
 
-**Stări tipice pentru un SIA:**
+![Diagrama State Machine](docs/state_machine.png)
 
-[IDLE / START] 
-      ↓
-[ACQUIRE_WINDOW] (Citește 150ms de semnal brut)
-      ↓
-[PREPROCESS] (Normalizare Z-Score)
-      ↓
-[INFERENCE_RN] (Modelul ResNet prezice clasa)
-      ↓
-[DECISION_LOGIC] (Verifică Confidence > 60%)
-      │
-      ├─ [Low Confidence] → [SEND_REST] (Trimite comandă "Stai")
-      │
-      └─ [High Confidence] → [SEND_MOVEMENT] (Trimite ID-ul mișcării)
-            ↓
-[TCP_TRANSMIT] (Trimite JSON către LabVIEW)
-      ↓
-[UPDATE_UI] (LabVIEW afișează mișcarea)
-      ↓
-(Înapoi la ACQUIRE_WINDOW)
-
-**Legendă obligatorie (scrieți în README):**
 ### Justificarea State Machine-ului ales:
 
-Am ales o arhitectură de tip Procesare Continuă în Timp Real (Streaming) deoarece o proteză trebuie să răspundă instantaneu la comenzile utilizatorului.
+Am ales o arhitectură de tip **Procesare Continuă în Timp Real (Streaming)** deoarece o proteză trebuie să răspundă instantaneu la comenzile utilizatorului, cu o latență minimă. Arhitectura separă clar achiziția datelor de inferența neuronală pentru a preveni blocarea fluxului de execuție.
 
-Stările principale sunt:
-1. ACQUIRE_WINDOW: Simularea senzorului care umple un buffer de 150ms.
-2. INFERENCE_RN: Pasul critic unde rețeaua neuronală clasifică intenția.
-3. DECISION_LOGIC: Un filtru de siguranță esențial. Dacă rețeaua nu este sigură (probabilitate mică), proteza nu trebuie să se miște haotic, ci să intre în starea de siguranță (REST).
+**Stările principale sunt:**
+1.  **ACQUIRE_EMG:** Simularea senzorului care umple un buffer circular de 150 samples (fereastra de analiză).
+2.  **RN_INFERENCE:** Pasul critic unde rețeaua neuronală **CNN 1D** clasifică intenția de mișcare pe baza datelor preprocesate.
+3.  **CLASSIFY_MOTION (Decision Logic):** Un filtru de siguranță esențial. Dacă rețeaua nu este sigură (probabilitate < 70%), proteza nu trebuie să se miște haotic, ci să intre în starea de siguranță (SAFE_STATE / Repaus).
 
-Sistemul include o stare de eroare (TCP_ERROR) care gestionează pierderea conexiunii cu interfața LabVIEW, asigurând reconectarea automată fără a opri procesul de analiză.
+**Tranzițiile critice sunt:**
+-   **[ACQUIRE_EMG] → [PREPROCESS]:** Se declanșează automat când buffer-ul atinge dimensiunea de **150 samples** (timp acumulare ~75ms cu overlap).
+-   **[CLASSIFY_MOTION] → [SAFE_STATE]:** Se activează instantaneu când **confidence score < 0.7**, prevenind mișcările false (false positives).
 
-Tranzițiile critice sunt:
-- [STARE_A] → [STARE_B]: [când se întâmplă - ex: "când buffer-ul atinge 1024 samples"]
-- [STARE_X] → [ERROR]: [condiții - ex: "când senzorul nu răspunde > 100ms"]
-
-Starea ERROR este esențială pentru că [explicați ce erori pot apărea în contextul 
-aplicației voastre industriale - ex: "senzorul se poate deconecta în mediul industrial 
-cu vibrații și temperatură variabilă, trebuie să gestionăm reconnect automat"].
-
-Bucla de feedback [dacă există] funcționează astfel: [ex: "rezultatul inferenței 
-actualizează parametrii controlerului PID pentru reglarea vitezei motorului"].
-```
-
----
+**Starea ERROR_HANDLER este esențială:**
+Aceasta asigură robustețea sistemului (Fail-Safe). În contextul unei proteze, erorile precum deconectarea electrozilor (EMG disconnect) sau zgomotul excesiv nu trebuie să blocheze aplicația, ci să ducă sistemul într-o stare de oprire controlată (`SAFE_STOP`), protejând astfel utilizatorul de accidentări cauzate de o proteză scăpată de sub control.
 
 ### 4. Scheletul Complet al celor 3 Module Cerute la Curs (slide 7)
 
-Toate cele 3 module trebuie să **pornească și să ruleze fără erori** la predare. Nu trebuie să fie perfecte, dar trebuie să demonstreze că înțelegeți arhitectura.
+Toate cele 3 module sunt implementate în limbajul Python și sunt integrate în pachetul `src`, demonstrând o arhitectură modulară funcțională, decuplată.
 
-| **Modul** | **Python (exemple tehnologii)** / **LabVIEW** | **Cerință minimă funcțională (la predare)** |
-|-----------|----------------------------------|-------------|----------------------------------------------|
-| **1. Data Logging / Acquisition** | prelucrare_date.py (partea de încărcare și generare) | Citește fișierele .mat, aplică filtre, generează datele sintetice (40%) și creează ferestrele de timp (Windowing). |
-| **2. Neural Network Module** | src/neural_network/resnet_model.py | LLB cu VI-uri RN | Definirea arhitecturii ResNet 1D, compilarea modelului și procesul de antrenare. Modelul salvat este model_proteza_final.keras. |
-| **3. Web Service / UI** | server_proteza.py + LabVIEW VI | Serverul Python preia datele, rulează inferența și trimite rezultatele prin TCP către aplicația client dezvoltată în LabVIEW.
+| **Modul** | **Implementare (Python)** | **Funcționalitate realizată (la predare)** |
+|-----------|----------------------------------|----------------------------------------------|
+| **1. Data Logging / Acquisition** | `src/preprocessing/` & `src/data_acquisition/` | Încarcă datele brute (sau simulate), aplică filtrare (Notch/Bandpass), fereștruiește semnalul (150ms) și normalizează datele. |
+| **2. Neural Network Module** | `src/neural_network/model.py` | Definirea arhitecturii **CNN 1D**, compilarea modelului și procesul de antrenare. Modelele sunt salvate în folderul `models/` (format .h5). |
+| **3. UI / Simulation** | `src/app/gui.py` (Interfață Grafică) | Interfață Desktop care încarcă un fișier de simulare, rulează inferența în timp real și afișează predicția vizual (bare de probabilitate). |
 
 #### Detalii per modul:
 
 #### **Modul 1: Data Logging / Acquisition**
 
 **Funcționalități obligatorii:**
-- [X] Cod rulează fără erori: `python src/data_acquisition/generate.py` sau echivalent LabVIEW
-- [X] Generează CSV în format compatibil cu preprocesarea din Etapa 3
-- [X] Include minimum 40% date originale în dataset-ul final
-- [X] Documentație în cod: ce date generează, cu ce parametri
+- [X] **Cod rulează fără erori:** Pipeline-ul de preprocesare este integrat și testat unitar.
+- [X] **Format compatibil:** Ieșirea este sub formă de matrici NumPy (`.npy`) gata de antrenare, salvate în `data/train` și `data/test`.
+- [X] **Pregătire pentru Augmentare:** Structura de cod permite generarea de date sintetice în versiunile viitoare (V2.0).
+- [X] **Documentație în cod:** Docstring-uri clare în clasele `EMGPipeline` și `DataGenerator`.
 
 #### **Modul 2: Neural Network Module**
 
 **Funcționalități obligatorii:**
-- [X] Arhitectură RN definită și compilată fără erori
-- [ ] Model poate fi salvat și reîncărcat
-- [X] Include justificare pentru arhitectura aleasă (în docstring sau README)
-- [ ] **NU trebuie antrenat** cu performanță bună (weights pot fi random)
+- [X] **Arhitectură definită:** Model CNN 1D (Conv1D + Dropout + Dense) compilat fără erori.
+- [X] **Persistență:** Modelul poate fi salvat și reîncărcat (`models/trained_model.h5`).
+- [X] **Justificare arhitectură:** CNN 1D este ideal pentru serii de timp EMG datorită invarianței la translație temporală și eficienței computaționale față de RNN-uri.
+- [X] **Stare antrenament:** Include modelul antrenat (`trained`) și cel optimizat (`optimized`).
 
-
-#### **Modul 3: Web Service / UI**
+#### **Modul 3: User Interface (UI)**
 
 **Funcționalități MINIME obligatorii:**
-- [ ] Propunere Interfață ce primește input de la user (formular, file upload, sau API endpoint)
-- [ ] Includeți un screenshot demonstrativ în `docs/screenshots/`
+- [X] **Input de la user:** Butoane funcționale pentru "Încărcare Simulare" și "Start/Stop".
+- [X] **Vizualizare:** Afișează semnalul brut (simulat) și clasa predicționată în timp real cu bare de încredere.
+- [X] **Demonstrație:** Screenshot inclus în `docs/interface_screenshot.png`.
 
-**Ce NU e necesar în Etapa 4:**
-- UI frumos/profesionist cu grafică avansată
-- Funcționalități multiple (istorice, comparații, statistici)
-- Predicții corecte (modelul e neantrenat, e normal să fie incorect)
-- Deployment în cloud sau server de producție
-
-**Scop:** Prima demonstrație că pipeline-ul end-to-end funcționează: input user → preprocess → model → output.
-
-
+**Scop:** Demonstrație că pipeline-ul end-to-end funcționează: input simulare → preprocess → model CNN → afișare rezultat pe ecran.
 ## Structura Repository-ului la Finalul Etapei 4 (OBLIGATORIE)
 
 **Verificare consistență cu Etapa 3:**
